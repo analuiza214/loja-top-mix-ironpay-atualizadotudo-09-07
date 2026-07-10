@@ -1,33 +1,4 @@
-const https = require("https");
-
-function httpsRequest(url, method, data, headers) {
-  return new Promise((resolve, reject) => {
-    const parsed = new URL(url);
-    const body = data ? JSON.stringify(data) : null;
-    const bodyBuffer = body ? Buffer.from(body, "utf8") : null;
-    const options = {
-      hostname: parsed.hostname,
-      path: parsed.pathname + parsed.search,
-      method,
-      headers: {
-        "Content-Type": "application/json",
-        ...(bodyBuffer ? { "Content-Length": bodyBuffer.length } : {}),
-        ...headers,
-      },
-    };
-    const req = https.request(options, (res) => {
-      let raw = "";
-      res.on("data", (c) => (raw += c));
-      res.on("end", () => {
-        try { resolve({ status: res.statusCode, body: JSON.parse(raw) }); }
-        catch { resolve({ status: res.statusCode, body: raw }); }
-      });
-    });
-    req.on("error", reject);
-    if (bodyBuffer) req.write(bodyBuffer);
-    req.end();
-  });
-}
+const { sendGmail } = require("./utils/gmail");
 
 exports.handler = async (event) => {
   const headers = {
@@ -37,22 +8,6 @@ exports.handler = async (event) => {
 
   if (event.httpMethod === "OPTIONS") return { statusCode: 204, headers, body: "" };
   if (event.httpMethod !== "POST") return { statusCode: 405, headers, body: JSON.stringify({ error: "POST only" }) };
-
-  const RESEND_API_KEY = process.env.RESEND_API_KEY;
-  if (!RESEND_API_KEY) {
-    return { statusCode: 500, headers, body: JSON.stringify({ error: "RESEND_API_KEY nao configurado nas variaveis de ambiente do Netlify" }) };
-  }
-
-  const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL;
-  if (!RESEND_FROM_EMAIL) {
-    return {
-      statusCode: 500,
-      headers,
-      body: JSON.stringify({
-        error: "RESEND_FROM_EMAIL nao configurado. Configure nas variaveis de ambiente do Netlify com um email do seu dominio verificado na Resend. Ex: TopMix Brasil <noreply@seudominio.com.br>",
-      }),
-    };
-  }
 
   let payload;
   try { payload = JSON.parse(event.body || "{}"); }
@@ -146,41 +101,18 @@ exports.handler = async (event) => {
   `.trim();
 
   try {
-    const result = await httpsRequest(
-      "https://api.resend.com/emails",
-      "POST",
-      {
-        from: RESEND_FROM_EMAIL,
-        to: [emailCliente],
-        subject: `📦 Seu código de rastreio TopMix${numeroPedido ? ` — Pedido #${numeroPedido}` : ""}`,
-        html,
-      },
-      { Authorization: `Bearer ${RESEND_API_KEY}` }
-    );
+    const result = await sendGmail({
+      to: emailCliente,
+      subject: `📦 Seu código de rastreio TopMix${numeroPedido ? ` — Pedido #${numeroPedido}` : ""}`,
+      html,
+      fromName: "TopMix Brasil",
+    });
 
-    console.log("[send-tracking-email] Resposta Resend status:", result.status);
-    console.log("[send-tracking-email] Resposta Resend body:", JSON.stringify(result.body));
+    console.log("[send-tracking-email] Email enviado via Gmail:", result.id);
 
-    if (result.status >= 200 && result.status < 300) {
-      return { statusCode: 200, headers, body: JSON.stringify({ ok: true, id: result.body.id }) };
-    }
-
-    const resendMessage =
-      (typeof result.body === "object" && result.body !== null)
-        ? (result.body.message || result.body.error || JSON.stringify(result.body))
-        : String(result.body);
-
-    console.error("[send-tracking-email] Erro Resend:", result.status, resendMessage);
-
-    return {
-      statusCode: 502,
-      headers,
-      body: JSON.stringify({
-        error: `Resend erro ${result.status}: ${resendMessage}`,
-      }),
-    };
+    return { statusCode: 200, headers, body: JSON.stringify({ ok: true, id: result.id }) };
   } catch (err) {
-    console.error("[send-tracking-email] Excecao:", err);
+    console.error("[send-tracking-email] Erro ao enviar via Gmail:", err);
     return { statusCode: 500, headers, body: JSON.stringify({ error: String(err.message || err) }) };
   }
 };
