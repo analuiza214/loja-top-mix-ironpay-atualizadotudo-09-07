@@ -56,7 +56,7 @@ export function Header() {
         <div className="md:hidden bg-white border-t border-gray-100">
           <nav className="max-w-6xl mx-auto px-4 py-3 flex flex-col divide-y divide-gray-100">
             <Link href="/" onClick={() => setMenuOpen(false)} className="py-3 text-sm font-medium text-gray-700">Loja</Link>
-            <Link href="/produto/album-250-figurinhas" onClick={() => setMenuOpen(false)} className="py-3 text-sm font-medium text-gray-700">Mais Vendido</Link>
+            <Link href="/produto/kit-650-figurinhas" onClick={() => setMenuOpen(false)} className="py-3 text-sm font-medium text-gray-700">Mais Vendido</Link>
             <button onClick={() => { setMenuOpen(false); setLocation("/carrinho"); }} className="py-3 text-sm font-medium text-gray-700 text-left flex items-center gap-2">
               <ShoppingCart className="h-4 w-4" />
               Carrinho {itemCount > 0 && `(${itemCount} itens)`}
