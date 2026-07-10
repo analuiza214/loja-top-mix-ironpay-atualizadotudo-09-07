@@ -503,7 +503,7 @@ ${codigo}
 
 Para consultar bastar apertar no link 👇🏽
 
-https://toop-mix-oficial.netlify.app/rastrear-pedido
+https://rastreio-topmix.netlify.app/rastrear-pedido
 
 Qualquer coisa só entrar em contato`;
 

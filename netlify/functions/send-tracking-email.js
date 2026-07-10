@@ -70,7 +70,7 @@ exports.handler = async (event) => {
 
               <!-- Botão rastrear -->
               <div style="text-align:center;margin:0 0 24px;">
-                <a href="https://toop-mix-oficial.netlify.app/rastrear-pedido"
+                <a href="https://rastreio-topmix.netlify.app/rastrear-pedido"
                    style="display:inline-block;background:#15803d;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:14px 32px;border-radius:10px;">
                   Rastrear meu pedido →
                 </a>

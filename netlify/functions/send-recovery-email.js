@@ -188,7 +188,7 @@ exports.handler = async (event) => {
     ? "Pagar meu PIX agora →"
     : "Quero minhas figurinhas →";
 
-  const storeUrl = "https://toop-mix-oficial.netlify.app";
+  const storeUrl = "https://top-mix-oficial.shop";
 
   const valorFormatado = valor
     ? `R$ ${parseFloat(valor).toFixed(2).replace(".", ",")}`
