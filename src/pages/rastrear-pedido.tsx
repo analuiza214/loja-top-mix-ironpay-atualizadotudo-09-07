@@ -3,7 +3,7 @@ import { Link } from "wouter";
 import {
   Search, Package, Truck, CheckCircle, Clock,
   ShieldCheck, ChevronRight, ArrowLeft, MapPin, Box,
-  AlertTriangle, RotateCcw, Warehouse, CreditCard, Copy, CheckCheck
+  AlertTriangle, RotateCcw, Warehouse, CreditCard, Copy, CheckCheck, X
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
@@ -26,20 +26,17 @@ function addDays(date: Date, days: number): Date {
   return new Date(date.getTime() + days * 24 * 60 * 60 * 1000);
 }
 
-// ── Busca a data de origem no Supabase ────────────────────────────────────────
-// Só funciona para códigos gerados pelo admin. Códigos inexistentes retornam null.
-async function getDataOrigem(codigo: string): Promise<Date | null> {
+// ── Busca a data de origem e nome do cliente no Supabase ─────────────────────
+async function getDataOrigem(codigo: string): Promise<{ origem: Date; nome: string | null } | null> {
   const { data } = await supabase
     .from("rastreio_origem")
-    .select("origem_at")
+    .select("origem_at, nome_cliente")
     .eq("codigo", codigo)
     .maybeSingle();
 
   if (data?.origem_at) {
-    return new Date(data.origem_at);
+    return { origem: new Date(data.origem_at), nome: data.nome_cliente || null };
   }
-
-  // Código não foi gerado pelo admin — nega o rastreio
   return null;
 }
 
@@ -229,6 +226,16 @@ export default function RastrearPedido() {
   const [taxaCopied, setTaxaCopied] = useState(false);
   const [taxaPaga, setTaxaPaga] = useState(false);
 
+  // nome do cliente (vindo do rastreio_origem)
+  const [nomeCliente, setNomeCliente] = useState<string | null>(null);
+
+  // estados do comprovante
+  const [comprovanteFase, setComprovanteFase] = useState<"idle" | "upload" | "enviado">("idle");
+  const [comprovanteFile, setComprovanteFile] = useState<File | null>(null);
+  const [comprovanteEnviando, setComprovanteEnviando] = useState(false);
+  const [comprovanteErro, setComprovanteErro] = useState("");
+  const [comprovanteEnviadoEm, setComprovanteEnviadoEm] = useState<Date | null>(null);
+
   async function handleGerarTaxaPix() {
     setTaxaLoading(true);
     setTaxaErro("");
@@ -264,6 +271,32 @@ export default function RastrearPedido() {
     }
   }
 
+  async function handleEnviarComprovante(file: File) {
+    setComprovanteFile(file);
+    setComprovanteEnviando(true);
+    setComprovanteErro("");
+    try {
+      const ext = file.name.split(".").pop() || "jpg";
+      const path = `${codigoExibido}/${Date.now()}.${ext}`;
+      const { error: uploadError } = await supabase.storage
+        .from("comprovantes")
+        .upload(path, file, { upsert: true });
+      if (uploadError) throw new Error(uploadError.message);
+      const { data: urlData } = supabase.storage.from("comprovantes").getPublicUrl(path);
+      await supabase.from("comprovantes_taxa").insert({
+        tracking_code: codigoExibido,
+        file_url: urlData.publicUrl,
+        file_name: file.name,
+      });
+      setComprovanteFase("enviado");
+      setTaxaPaga(true);
+      setComprovanteEnviadoEm(new Date());
+    } catch (e) {
+      setComprovanteErro(e instanceof Error ? e.message : "Erro ao enviar. Tente novamente.");
+      setComprovanteEnviando(false);
+    }
+  }
+
   async function handleCopiarTaxa() {
     if (!taxaPix?.pixCode) return;
     try { await navigator.clipboard.writeText(taxaPix.pixCode); } catch { /* ignored */ }
@@ -292,13 +325,14 @@ export default function RastrearPedido() {
 
     setLoading(true);
     try {
-      const origem = await getDataOrigem(cod.toUpperCase());
-      if (!origem) {
+      const result = await getDataOrigem(cod.toUpperCase());
+      if (!result) {
         setErro("Código não encontrado. Verifique o código enviado pela Top Mix e tente novamente.");
         return;
       }
       setCodigoExibido(cod.toUpperCase());
-      setResultado(gerarEtapas(origem));
+      setNomeCliente(result.nome);
+      setResultado(gerarEtapas(result.origem));
     } catch {
       setErro("Erro ao buscar o rastreio. Tente novamente.");
     } finally {
@@ -397,12 +431,14 @@ export default function RastrearPedido() {
 
                   {/* Confirmação de pagamento */}
                   {taxaPaga ? (
-                    <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-center">
-                      <div className="w-12 h-12 rounded-full bg-green-500 flex items-center justify-center mx-auto mb-2">
-                        <CheckCheck className="h-6 w-6 text-white" />
+                    <div className="bg-green-50 border border-green-200 rounded-xl p-4 flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-full bg-green-500 flex items-center justify-center shrink-0">
+                        <CheckCheck className="h-5 w-5 text-white" />
                       </div>
-                      <p className="font-black text-green-700 text-sm">Pagamento confirmado!</p>
-                      <p className="text-xs text-green-600 mt-1">Seu pedido será reencaminhado em breve. Aguarde o código de rastreio atualizado.</p>
+                      <div>
+                        <p className="font-black text-green-700 text-sm">Comprovante recebido!</p>
+                        <p className="text-xs text-green-600 mt-0.5">Seu reenvio já está sendo processado. Acompanhe abaixo.</p>
+                      </div>
                     </div>
 
                   ) : taxaPix ? (
@@ -447,7 +483,7 @@ export default function RastrearPedido() {
                       </div>
 
                       <button
-                        onClick={() => setTaxaPaga(true)}
+                        onClick={() => setComprovanteFase("upload")}
                         className="w-full py-2.5 rounded-xl border-2 border-green-500 text-green-700 font-bold text-xs hover:bg-green-50 transition-all"
                       >
                         ✅ Já paguei — confirmar pagamento
@@ -571,13 +607,113 @@ export default function RastrearPedido() {
                 })}
               </div>
 
-              {/* Previsão de entrega — só mostra se não houve falha */}
-              {!resultado.falhaEntrega && (
+              {/* Previsão de entrega — só mostra se não houve falha e taxa não paga */}
+              {!resultado.falhaEntrega && !taxaPaga && (
                 <div className="rounded-xl bg-yellow-50 border border-yellow-200 p-4 text-sm text-yellow-800">
                   <strong>Previsão de entrega:</strong> até {resultado.previsao}. Fique atento — entregas podem variar conforme a região.
                 </div>
               )}
             </div>
+
+            {/* ── Card de reenvio (aparece após comprovante enviado) ─────────── */}
+            {taxaPaga && comprovanteEnviadoEm && (() => {
+              const agora = new Date();
+              const minReenvio = (agora.getTime() - comprovanteEnviadoEm.getTime()) / 60000;
+
+              const tSeparacao = new Date(comprovanteEnviadoEm.getTime() + 2 * 60 * 60 * 1000);
+              const tSaiu      = new Date(comprovanteEnviadoEm.getTime() + 1 * 24 * 60 * 60 * 1000);
+              const tEntregue  = new Date(comprovanteEnviadoEm.getTime() + 3 * 24 * 60 * 60 * 1000);
+
+              const fmtPrev = (d: Date) =>
+                `Previsão: ${d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" })}`;
+
+              const nomeExibido = nomeCliente
+                ? nomeCliente.split(" ")[0].charAt(0).toUpperCase() + nomeCliente.split(" ")[0].slice(1).toLowerCase()
+                : "você";
+
+              const etapasReenvio = [
+                {
+                  icone: CheckCheck,
+                  label: "Taxa de Reenvio Confirmada",
+                  descricao: "Comprovante de pagamento recebido. Seu reenvio foi aprovado.",
+                  data: fmt(comprovanteEnviadoEm),
+                  ok: true,
+                  erro: false,
+                  ultimo: false,
+                },
+                {
+                  icone: Package,
+                  label: "Em Separação para Reenvio",
+                  descricao: "Seu pedido está sendo separado e embalado novamente para envio.",
+                  data: minReenvio >= 120 ? fmt(tSeparacao) : fmtPrev(tSeparacao),
+                  ok: minReenvio >= 120,
+                  erro: false,
+                  ultimo: false,
+                },
+                {
+                  icone: Truck,
+                  label: "Saiu para Entrega",
+                  descricao: "Pedido despachado! O entregador já está a caminho do seu endereço.",
+                  data: minReenvio >= 1440 ? fmt(tSaiu) : fmtPrev(tSaiu),
+                  ok: minReenvio >= 1440,
+                  erro: false,
+                  ultimo: false,
+                },
+                {
+                  icone: CheckCircle,
+                  label: `Entregue a ${nomeExibido}`,
+                  descricao: "Seu Kit Completo Copa 2026 foi entregue com sucesso. Obrigado pela confiança!",
+                  data: minReenvio >= 4320 ? fmt(tEntregue) : fmtPrev(tEntregue),
+                  ok: minReenvio >= 4320,
+                  erro: false,
+                  ultimo: true,
+                },
+              ];
+
+              return (
+                <div className="bg-white rounded-2xl p-6 shadow-sm border border-green-200 space-y-6">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-green-100 flex items-center justify-center">
+                      <Truck className="h-5 w-5 text-green-600" />
+                    </div>
+                    <div>
+                      <h3 className="font-black text-gray-900 text-base">Reenvio em Andamento</h3>
+                      <p className="text-xs text-green-600 font-semibold">Previsão de entrega: {tEntregue.toLocaleDateString("pt-BR", { day: "2-digit", month: "long" })}</p>
+                    </div>
+                  </div>
+
+                  <div>
+                    {etapasReenvio.map((etapa, i) => {
+                      const Icon = etapa.icone;
+                      const isLast = i === etapasReenvio.length - 1;
+                      const circleBg = etapa.ok ? "bg-green-500" : "bg-gray-200";
+                      const iconColor = etapa.ok ? "text-white" : "text-gray-400";
+                      const lineBg   = etapa.ok ? "bg-green-300" : "bg-gray-200";
+                      const labelColor = etapa.ok ? "text-gray-900" : "text-gray-400";
+                      const dataColor  = etapa.ok ? "text-green-600" : "text-gray-400";
+
+                      return (
+                        <div key={i} className="flex gap-4 relative">
+                          <div className="flex flex-col items-center">
+                            <div className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 z-10 ${circleBg}`}>
+                              <Icon className={`h-4 w-4 ${iconColor}`} />
+                            </div>
+                            {!isLast && (
+                              <div className={`w-0.5 flex-1 my-1 ${lineBg}`} style={{ minHeight: 28 }} />
+                            )}
+                          </div>
+                          <div className="pb-5">
+                            <p className={`text-sm font-bold ${labelColor}`}>{etapa.label}</p>
+                            <p className="text-xs text-gray-500 mt-0.5">{etapa.descricao}</p>
+                            <p className={`text-xs mt-0.5 font-semibold ${dataColor}`}>{etapa.data}</p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
           </>
         )}
 
@@ -603,6 +739,81 @@ export default function RastrearPedido() {
           Não encontrou? <Link href="/fale-conosco" className="text-yellow-600 font-bold hover:underline ml-1">Entre em contato</Link>
         </div>
       </div>
+
+      {/* ── Popup comprovante de pagamento ── */}
+      {comprovanteFase === "upload" && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: "rgba(0,0,0,0.55)" }}
+          onClick={e => { if (!comprovanteEnviando && e.target === e.currentTarget) { setComprovanteFase("idle"); setComprovanteFile(null); setComprovanteErro(""); } }}
+        >
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+            {/* Cabeçalho */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-green-100 flex items-center justify-center">
+                  <CheckCheck className="h-4 w-4 text-green-600" />
+                </div>
+                <p className="font-black text-gray-900 text-sm">Confirmar pagamento</p>
+              </div>
+              {!comprovanteEnviando && (
+                <button
+                  onClick={() => { setComprovanteFase("idle"); setComprovanteFile(null); setComprovanteErro(""); }}
+                  className="text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              )}
+            </div>
+
+            {/* Conteúdo */}
+            <div className="px-5 py-5 space-y-4">
+              {comprovanteEnviando ? (
+                /* Estado de carregamento */
+                <div className="flex flex-col items-center gap-4 py-6">
+                  <div className="w-14 h-14 rounded-full bg-green-50 flex items-center justify-center">
+                    <div className="w-7 h-7 border-[3px] border-green-200 border-t-green-600 rounded-full animate-spin" />
+                  </div>
+                  <div className="text-center">
+                    <p className="font-black text-gray-800 text-sm">Enviando comprovante...</p>
+                    <p className="text-xs text-gray-500 mt-1">Aguarde, estamos processando.</p>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <p className="text-sm text-gray-600 leading-relaxed">
+                    Envie o <strong>comprovante do pagamento</strong> da taxa de reenvio. Assim que enviar, seu reenvio é confirmado automaticamente.
+                  </p>
+
+                  {/* Área de upload — dispara automaticamente ao selecionar */}
+                  <label className="flex flex-col items-center justify-center gap-2 w-full h-32 rounded-xl border-2 border-dashed border-green-300 bg-green-50 cursor-pointer hover:bg-green-100 active:scale-98 transition-all">
+                    <input
+                      type="file"
+                      accept="image/*,.pdf"
+                      className="hidden"
+                      onChange={e => {
+                        const file = e.target.files?.[0];
+                        if (file) handleEnviarComprovante(file);
+                      }}
+                    />
+                    <span className="text-3xl">📎</span>
+                    <span className="text-sm text-gray-700 font-bold">Toque para anexar o comprovante</span>
+                    <span className="text-xs text-gray-400">Foto, print ou PDF — qualquer formato</span>
+                  </label>
+
+                  {comprovanteErro && (
+                    <p className="text-xs text-red-500 text-center bg-red-50 rounded-xl px-3 py-2">{comprovanteErro}</p>
+                  )}
+
+                  <p className="text-[11px] text-gray-400 text-center">
+                    Ao enviar qualquer arquivo, seu pagamento é confirmado e o reenvio é reagendado automaticamente.
+                  </p>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

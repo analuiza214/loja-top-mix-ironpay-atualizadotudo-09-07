@@ -453,7 +453,7 @@ function GeradorCodigo() {
   async function registrarCodigo(cod: string) {
     await supabase
       .from("rastreio_origem")
-      .upsert({ codigo: cod, origem_at: new Date().toISOString() }, { onConflict: "codigo", ignoreDuplicates: true });
+      .upsert({ codigo: cod, origem_at: new Date().toISOString(), nome_cliente: nomeCliente || null }, { onConflict: "codigo", ignoreDuplicates: true });
   }
 
   function copiar() {
@@ -503,7 +503,7 @@ ${codigo}
 
 Para consultar bastar apertar no link 👇🏽
 
-https://rastreio-topmix.netlify.app/rastrear-pedido
+https://toop-mix-oficial.netlify.app/rastrear-pedido
 
 Qualquer coisa só entrar em contato`;
 
@@ -723,7 +723,7 @@ function AdminPanel() {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              orderId: lead.transaction_id || `lead-${lead.id}`,
+              orderId: lead.transaction_id ? `${lead.transaction_id}-${lead.id}` : `lead-${lead.id}`,
               status: "paid",
               customerName: lead.nome,
               customerEmail: lead.email,
