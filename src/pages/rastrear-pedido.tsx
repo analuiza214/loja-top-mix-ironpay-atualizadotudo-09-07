@@ -724,7 +724,7 @@ export default function RastrearPedido() {
             {[
               "No WhatsApp — enviamos o código assim que o pedido for confirmado",
               "O código começa sempre com TM seguido de letras e números",
-              "Dúvidas? Fale conosco pelo WhatsApp (83) 99331-8120",
+              "Dúvidas? Fale conosco pelo WhatsApp (83) 99129-7085",
             ].map((item, i) => (
               <li key={i} className="flex items-start gap-2">
                 <ChevronRight className="h-4 w-4 text-yellow-500 shrink-0 mt-0.5" />
